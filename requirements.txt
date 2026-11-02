@@ -1,0 +1,3 @@
+# Universal Video Downloader - Python Dependencies
+yt-dlp>=2026.10.26
+

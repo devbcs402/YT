@@ -1,0 +1,5 @@
+# YouTube Shorts Automatic Video Splitter Requirements
+# The core application utilizes Python 3 standard library with FFmpeg.
+colorama>=0.4.6
+pytest>=7.0.0
+
