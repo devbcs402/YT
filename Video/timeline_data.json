@@ -1,0 +1,135 @@
+[
+  {
+    "sceneId": 1,
+    "sceneName": "scene1_hook",
+    "sceneStart": 0,
+    "sceneEnd": 9.595458,
+    "sceneDuration": 9.595458,
+    "sentences": [
+      {
+        "textHi": "JavaScript se sirf websites banti hain?",
+        "textEn": "JavaScript only makes websites?",
+        "localStart": 0.1,
+        "localEnd": 3.765909,
+        "globalStart": 0.1,
+        "globalEnd": 3.765909
+      },
+      {
+        "textHi": "Bilkul nahi!",
+        "textEn": "Not at all!",
+        "localStart": 3.715909,
+        "localEnd": 5.4204544,
+        "globalStart": 3.715909,
+        "globalEnd": 5.4204544
+      },
+      {
+        "textHi": "Aap JavaScript se powerful backend servers bhi bana sakte ho!",
+        "textEn": "You can build powerful backend servers with JavaScript too!",
+        "localStart": 5.4204544,
+        "localEnd": 10.0795452,
+        "globalStart": 5.4204544,
+        "globalEnd": 10.0795452
+      }
+    ]
+  },
+  {
+    "sceneId": 2,
+    "sceneName": "scene2_intro",
+    "sceneStart": 9.595458,
+    "sceneEnd": 19.690916,
+    "sceneDuration": 10.095458,
+    "sentences": [
+      {
+        "textHi": "Iska secret hai Node.js!",
+        "textEn": "The secret is Node.js!",
+        "localStart": 0.1,
+        "localEnd": 3.140909,
+        "globalStart": 9.695458,
+        "globalEnd": 12.736367000000001
+      },
+      {
+        "textHi": "Ye ek JavaScript runtime environment hai, jo aapko browser ke bahar JavaScript run karne deta hai.",
+        "textEn": "It's a JavaScript runtime environment that lets you run JavaScript outside the browser!",
+        "localStart": 3.090909,
+        "localEnd": 10.9545451,
+        "globalStart": 12.686367,
+        "globalEnd": 20.5500031
+      }
+    ]
+  },
+  {
+    "sceneId": 3,
+    "sceneName": "scene3_how_it_works",
+    "sceneStart": 19.690916,
+    "sceneEnd": 28.813624000000004,
+    "sceneDuration": 9.122708000000001,
+    "sentences": [
+      {
+        "textHi": "Ab Node.js ki help se aap APIs bana sakte ho, database se connect kar sakte ho, aur client ki requests handle kar sakte ho.",
+        "textEn": "With Node.js, you can build APIs, connect to databases, and handle client requests!",
+        "localStart": 0.1,
+        "localEnd": 9.697727,
+        "globalStart": 19.790916000000003,
+        "globalEnd": 29.388643000000002
+      }
+    ]
+  },
+  {
+    "sceneId": 4,
+    "sceneName": "scene4_code_demo",
+    "sceneStart": 28.813624000000004,
+    "sceneEnd": 36.659082000000005,
+    "sceneDuration": 7.845458,
+    "sentences": [
+      {
+        "textHi": "Example dekho!",
+        "textEn": "Check this example!",
+        "localStart": 0.1,
+        "localEnd": 1.9818181000000001,
+        "globalStart": 28.913624000000006,
+        "globalEnd": 30.795442100000006
+      },
+      {
+        "textHi": "Sirf kuch lines mein hum apna pehla Node.js HTTP server bana sakte hain.",
+        "textEn": "In just a few lines, we can build our first Node.js HTTP server.",
+        "localStart": 1.9318181,
+        "localEnd": 8.715908800000001,
+        "globalStart": 30.745442100000005,
+        "globalEnd": 37.529532800000005
+      }
+    ]
+  },
+  {
+    "sceneId": 5,
+    "sceneName": "scene5_outro",
+    "sceneStart": 36.659082000000005,
+    "sceneEnd": 50.049998,
+    "sceneDuration": 13.390916,
+    "sentences": [
+      {
+        "textHi": "Toh ab JavaScript sirf frontend tak limited nahi hai!",
+        "textEn": "So JavaScript is no longer limited to frontend!",
+        "localStart": 0.1,
+        "localEnd": 4.629545299999999,
+        "globalStart": 36.75908200000001,
+        "globalEnd": 41.28862730000001
+      },
+      {
+        "textHi": "Ye backend development ka bhi powerful tool hai.",
+        "textEn": "It's a powerful tool for backend development too!",
+        "localStart": 4.5795453,
+        "localEnd": 8.7386361,
+        "globalStart": 41.238627300000005,
+        "globalEnd": 45.397718100000006
+      },
+      {
+        "textHi": "Follow karo aur chalo saath mein complete 100-day challenge karte hain!",
+        "textEn": "Follow along and let's complete the 100-day challenge together!",
+        "localStart": 8.7386361,
+        "localEnd": 14.261363200000002,
+        "globalStart": 45.397718100000006,
+        "globalEnd": 50.9204452
+      }
+    ]
+  }
+]
