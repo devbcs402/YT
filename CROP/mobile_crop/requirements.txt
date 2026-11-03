@@ -1,0 +1,4 @@
+# Mobile YouTube Shorts Splitter Requirements
+# Note: This mobile edition uses 100% Python standard library and built-in a-Shell FFmpeg.
+# No third-party pip packages are required!
+

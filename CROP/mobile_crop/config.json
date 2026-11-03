@@ -1,0 +1,13 @@
+{
+    "input_video": "video/video.mp4",
+    "output_dir": "output/shorts",
+    "clip_duration": 60,
+    "video_format": "vertical_blur",
+    "output_resolution": "1080x1920",
+    "video_codec": "libx264",
+    "audio_codec": "aac",
+    "crf": 20,
+    "preset": "fast",
+    "stream_copy_original": false
+}
+
