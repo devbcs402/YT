@@ -69,3 +69,7 @@ def save_config(config: MobileAppConfig, config_path: Path = DEFAULT_CONFIG_PATH
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config.to_dict(), f, indent=4)
 
+
+# Compatibility alias
+AppConfig = MobileAppConfig
+

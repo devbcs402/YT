@@ -1,0 +1,2 @@
+Place your source video file here and rename it to 'video.mp4'.
+The splitter will automatically detect and load it on startup.

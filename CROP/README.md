@@ -26,6 +26,10 @@ A senior-grade, reliable Python command-line application that automatically anal
 
 ```text
 CROP/
+├── install.py           # Automatic setup & dependency installer (like npm install)
+├── setup.py             # Alias for install.py
+├── install.bat          # 1-click Windows installer
+├── install.sh           # 1-click Unix/mobile installer
 ├── main.py              # CLI entry point, interactive menu & progress reporting
 ├── video_processor.py   # FFmpeg engine, stream analysis, clipping & validation
 ├── config.py            # Configuration loader, validator & serializer
@@ -39,6 +43,19 @@ CROP/
 └── output/
     └── shorts/          # Generated 60-second YouTube Shorts clips
 ```
+
+---
+
+## ⚡ 1-Step Setup (Just like `npm install`)
+
+When you first clone or download this project, simply run:
+
+```bash
+python install.py
+```
+*(or double-click `install.bat` on Windows)*
+
+It will automatically check your Python environment, install all libraries from `requirements.txt`, verify FFmpeg, create the folders, and get everything ready.
 
 ---
 

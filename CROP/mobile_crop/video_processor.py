@@ -1,7 +1,8 @@
 """
 Video processor module for Mobile YouTube Shorts Video Splitter.
-Handles FFmpeg / ffprobe detection (with iOS a-Shell support), video probing,
-clip time calculations, stream verification, and mobile-optimized encoding.
+Features adaptive mobile encoder detection (Apple VideoToolbox / libx264),
+pure-FFmpeg metadata probing (zero ffprobe dependency required),
+and mobile-resilient video filtering.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -106,17 +108,14 @@ def format_file_size(bytes_count: int) -> str:
 
 def check_ffmpeg_installed() -> Tuple[bool, bool, str]:
     """
-    Check if ffmpeg and ffprobe are available.
+    Check if ffmpeg is available.
     Supports both traditional PATH binaries and mobile embedded environments (e.g., iOS a-Shell).
     Returns: (ffmpeg_found, ffprobe_found, detailed_status_or_guide)
+    Note: ffprobe is OPTIONAL since this module has built-in pure FFmpeg fallback probing.
     """
-    ffmpeg_bin = shutil.which("ffmpeg")
-    ffprobe_bin = shutil.which("ffprobe")
+    ffmpeg_ok = shutil.which("ffmpeg") is not None
+    ffprobe_ok = shutil.which("ffprobe") is not None
 
-    ffmpeg_ok = ffmpeg_bin is not None
-    ffprobe_ok = ffprobe_bin is not None
-
-    # Fallback check for mobile environments (like iOS a-Shell) where commands are built-in functions
     if not ffmpeg_ok:
         try:
             res = subprocess.run(
@@ -143,50 +142,156 @@ def check_ffmpeg_installed() -> Tuple[bool, bool, str]:
         except Exception:
             pass
 
-    if ffmpeg_ok and ffprobe_ok:
-        return True, True, "FFmpeg and ffprobe are available and operational."
+    if ffmpeg_ok:
+        probe_status = "ffprobe active" if ffprobe_ok else "pure FFmpeg parser active"
+        return True, ffprobe_ok, f"FFmpeg is available ({probe_status})."
 
-    missing = []
-    if not ffmpeg_ok:
-        missing.append("ffmpeg")
-    if not ffprobe_ok:
-        missing.append("ffprobe")
-
-    # Platform-specific instructions
+    # FFmpeg is completely missing
     if sys.platform == "darwin" or "a-shell" in os.environ.get("SHELL", "").lower():
         instructions = (
-            f"[ERROR] Missing tool(s): {', '.join(missing)}\n\n"
-            "For iOS (a-Shell):\n"
-            "  - Ensure you are using 'a-Shell' (not a-Shell mini if audio codecs are needed).\n"
-            "  - In a-Shell, test running 'ffmpeg -version' directly in terminal.\n"
+            "[ERROR] FFmpeg command not found in your mobile environment.\n\n"
+            "On iOS:\n"
+            "  - Install 'a-Shell' from the App Store.\n"
+            "  - In a-Shell, test running 'ffmpeg -version'.\n"
         )
     elif os.name == "nt":
         instructions = (
-            f"[ERROR] Required tool(s) missing from PATH: {', '.join(missing)}\n\n"
+            "[ERROR] FFmpeg missing from PATH.\n\n"
             "Install FFmpeg on Windows via PowerShell:\n"
             "  winget install Gyan.FFmpeg\n"
         )
     else:
         instructions = (
-            f"[ERROR] Missing tool(s): {', '.join(missing)}\n\n"
-            "Install FFmpeg on Linux/Android Termux:\n"
-            "  pkg install ffmpeg   (Termux)\n"
-            "  sudo apt install ffmpeg (Debian/Ubuntu)\n"
+            "[ERROR] FFmpeg missing.\n\n"
+            "Install on Android Termux: pkg install ffmpeg\n"
+            "Install on Ubuntu/Debian:  sudo apt install ffmpeg\n"
         )
 
-    return ffmpeg_ok, ffprobe_ok, instructions
+    return False, ffprobe_ok, instructions
+
+
+# Cache detected capabilities so we don't query subprocess repeatedly
+_CACHED_ENCODER_INFO: Optional[Tuple[str, List[str]]] = None
+_CACHED_AUDIO_INFO: Optional[List[str]] = None
+_CACHED_BLUR_FILTER: Optional[str] = None
+
+
+def detect_video_encoder() -> Tuple[str, List[str]]:
+    """
+    Detect the best working H.264 video encoder on this device:
+    - On iOS (a-Shell): 'h264_videotoolbox' (Apple hardware accelerated, no GPL libx264)
+    - On Android / Linux / Windows: 'libx264' (software) or 'h264_mediacodec'
+    - Fallback: default FFmpeg encoder
+    Returns: (encoder_name, encoder_cli_flags)
+    """
+    global _CACHED_ENCODER_INFO
+    if _CACHED_ENCODER_INFO is not None:
+        return _CACHED_ENCODER_INFO
+
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-encoders"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        stdout = proc.stdout or ""
+    except Exception:
+        stdout = ""
+
+    if "h264_videotoolbox" in stdout:
+        # Apple VideoToolbox (iOS / macOS hardware accelerated)
+        # Note: VideoToolbox uses -b:v or -q:v, does NOT accept -crf or -preset
+        _CACHED_ENCODER_INFO = (
+            "h264_videotoolbox",
+            ["-c:v", "h264_videotoolbox", "-b:v", "4M", "-pix_fmt", "yuv420p"],
+        )
+    elif "libx264" in stdout:
+        _CACHED_ENCODER_INFO = (
+            "libx264",
+            ["-c:v", "libx264", "-crf", "20", "-preset", "fast", "-pix_fmt", "yuv420p"],
+        )
+    elif "h264_mediacodec" in stdout:
+        _CACHED_ENCODER_INFO = (
+            "h264_mediacodec",
+            ["-c:v", "h264_mediacodec", "-b:v", "4M", "-pix_fmt", "yuv420p"],
+        )
+    else:
+        _CACHED_ENCODER_INFO = (
+            "default",
+            ["-pix_fmt", "yuv420p"],
+        )
+
+    return _CACHED_ENCODER_INFO
+
+
+def detect_audio_encoder() -> List[str]:
+    """Detect available AAC or compatible audio encoder."""
+    global _CACHED_AUDIO_INFO
+    if _CACHED_AUDIO_INFO is not None:
+        return _CACHED_AUDIO_INFO
+
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-encoders"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        stdout = proc.stdout or ""
+    except Exception:
+        stdout = ""
+
+    if " aac " in stdout or "aac" in stdout:
+        _CACHED_AUDIO_INFO = ["-c:a", "aac", "-b:a", "192k"]
+    else:
+        _CACHED_AUDIO_INFO = ["-c:a", "copy"]
+
+    return _CACHED_AUDIO_INFO
+
+
+def detect_blur_filter() -> str:
+    """Detect working blur filter (boxblur vs gblur vs subtle dimming)."""
+    global _CACHED_BLUR_FILTER
+    if _CACHED_BLUR_FILTER is not None:
+        return _CACHED_BLUR_FILTER
+
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-filters"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        stdout = proc.stdout or ""
+    except Exception:
+        stdout = ""
+
+    if "boxblur" in stdout:
+        _CACHED_BLUR_FILTER = "boxblur=20:5"
+    elif "gblur" in stdout:
+        _CACHED_BLUR_FILTER = "gblur=sigma=20"
+    else:
+        # Fallback if no blur filter was compiled into mobile build
+        _CACHED_BLUR_FILTER = "eq=brightness=-0.3"
+
+    return _CACHED_BLUR_FILTER
 
 
 class MobileVideoProcessor:
-    """Core video manipulation engine optimized for mobile & desktop execution."""
+    """Mobile and desktop video processor with adaptive encoder & fallback probing."""
 
     def __init__(self) -> None:
         pass
 
     def probe_video(self, video_path: Path) -> VideoInfo:
         """
-        Probe input video file using ffprobe and return structured VideoInfo.
-        Raises FileNotFoundError if file is missing, ValueError if invalid.
+        Probe input video file.
+        Attempts ffprobe first; if ffprobe is missing (e.g. on iOS a-Shell),
+        seamlessly parses metadata from pure FFmpeg output.
         """
         if not video_path.exists():
             raise FileNotFoundError(
@@ -201,6 +306,31 @@ class MobileVideoProcessor:
         if file_size == 0:
             raise ValueError(f"Video file is empty (0 bytes): {video_path}")
 
+        # Check if ffprobe is callable
+        has_ffprobe = shutil.which("ffprobe") is not None
+        if not has_ffprobe:
+            try:
+                res = subprocess.run(
+                    ["ffprobe", "-version"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                has_ffprobe = res.returncode == 0
+            except Exception:
+                has_ffprobe = False
+
+        if has_ffprobe:
+            try:
+                return self._probe_with_ffprobe(video_path, file_size)
+            except Exception:
+                # If ffprobe fails for any reason, fall back to pure FFmpeg
+                pass
+
+        return self._probe_with_ffmpeg(video_path, file_size)
+
+    def _probe_with_ffprobe(self, video_path: Path, file_size: int) -> VideoInfo:
+        """Probe metadata using ffprobe JSON output."""
         cmd = [
             "ffprobe",
             "-v",
@@ -212,32 +342,20 @@ class MobileVideoProcessor:
             str(video_path.resolve()),
         ]
 
-        try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-                encoding="utf-8",
-                errors="replace",
-            )
-        except FileNotFoundError:
-            raise RuntimeError(
-                "ffprobe executable was not found. Please verify FFmpeg/ffprobe installation."
-            )
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+        )
 
         if result.returncode != 0:
-            err_msg = result.stderr.strip() or "Unknown ffprobe error"
-            raise ValueError(
-                f"Unable to read video file '{video_path.name}'. Details: {err_msg}"
-            )
+            raise ValueError(result.stderr.strip() or "ffprobe error")
 
-        try:
-            data = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Failed to parse ffprobe output: {exc}")
-
+        data = json.loads(result.stdout)
         format_info = data.get("format", {})
         streams = data.get("streams", [])
 
@@ -251,25 +369,19 @@ class MobileVideoProcessor:
                 audio_stream = stream
 
         if not video_stream:
-            raise ValueError(
-                f"File '{video_path.name}' does not contain any valid video stream."
-            )
+            raise ValueError(f"No video stream found in '{video_path.name}'.")
 
-        # Duration
         duration_str = format_info.get("duration") or video_stream.get("duration")
         if not duration_str or float(duration_str) <= 0:
             if audio_stream and audio_stream.get("duration"):
                 duration_str = audio_stream.get("duration")
             else:
-                raise ValueError(
-                    f"Could not determine valid duration for '{video_path.name}'."
-                )
+                raise ValueError("Could not determine video duration.")
 
         duration = float(duration_str)
         width = int(video_stream.get("width", 0))
         height = int(video_stream.get("height", 0))
 
-        # Aspect ratio
         dar = video_stream.get("display_aspect_ratio")
         if not dar and width > 0 and height > 0:
             gcd = math.gcd(width, height)
@@ -277,7 +389,6 @@ class MobileVideoProcessor:
         elif not dar:
             dar = "Unknown"
 
-        # Frame rate
         fps = 0.0
         r_fps = video_stream.get("r_frame_rate", "0/0")
         if "/" in r_fps:
@@ -315,14 +426,93 @@ class MobileVideoProcessor:
             bitrate=bitrate,
         )
 
+    def _probe_with_ffmpeg(self, video_path: Path, file_size: int) -> VideoInfo:
+        """
+        Pure FFmpeg fallback video metadata parser.
+        Works in environments where ffprobe is missing (e.g. iOS a-Shell).
+        """
+        cmd = ["ffmpeg", "-hide_banner", "-i", str(video_path.resolve())]
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            encoding="utf-8",
+            errors="replace",
+        )
+        stderr = proc.stderr or ""
+
+        # Duration match: Duration: 00:05:23.45, start: 0.000000, bitrate: 1234 kb/s
+        dur_match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
+        if not dur_match:
+            raise ValueError(
+                f"Could not determine video duration for '{video_path.name}' using FFmpeg."
+            )
+
+        hrs, mins, secs = dur_match.groups()
+        duration = int(hrs) * 3600 + int(mins) * 60 + float(secs)
+
+        # Resolution & Video stream
+        v_match = re.search(r"Stream.*Video:\s*([^\s,]+).*?,\s*(\d{2,5})x(\d{2,5})", stderr)
+        if not v_match:
+            raise ValueError(f"No video stream found in '{video_path.name}'.")
+
+        video_codec = v_match.group(1)
+        width = int(v_match.group(2))
+        height = int(v_match.group(3))
+
+        fps_match = re.search(r"(\d+(?:\.\d+)?)\s*fps", stderr)
+        fps = float(fps_match.group(1)) if fps_match else 30.0
+
+        dar_match = re.search(r"DAR\s*(\d+:\d+)", stderr)
+        if dar_match:
+            dar = dar_match.group(1)
+        elif width > 0 and height > 0:
+            gcd = math.gcd(width, height)
+            dar = f"{width // gcd}:{height // gcd}"
+        else:
+            dar = "Unknown"
+
+        bitrate_match = re.search(r"bitrate:\s*(\d+)\s*kb/s", stderr)
+        bitrate = int(bitrate_match.group(1)) * 1000 if bitrate_match else None
+
+        a_match = re.search(r"Stream.*Audio:\s*([^\s,]+)", stderr)
+        has_audio = a_match is not None
+        audio_codec = a_match.group(1) if a_match else None
+
+        sr_match = re.search(r"(\d+)\s*Hz", stderr)
+        audio_sr = int(sr_match.group(1)) if sr_match else None
+
+        ch_match = re.search(r"(stereo|mono|(\d+)\s*channels)", stderr)
+        audio_channels = (
+            2
+            if ch_match and "stereo" in ch_match.group(1)
+            else (1 if ch_match and "mono" in ch_match.group(1) else None)
+        )
+
+        return VideoInfo(
+            path=video_path,
+            filename=video_path.name,
+            duration=duration,
+            file_size_bytes=file_size,
+            width=width,
+            height=height,
+            aspect_ratio=dar,
+            fps=fps,
+            video_codec=video_codec,
+            has_audio=has_audio,
+            audio_codec=audio_codec,
+            audio_channels=audio_channels,
+            audio_sample_rate=audio_sr,
+            bitrate=bitrate,
+        )
+
     @staticmethod
     def calculate_clips(
         duration: float, clip_duration: float = 60.0
     ) -> List[ClipSegment]:
-        """
-        Calculate sequential, non-overlapping 60s segments.
-        Preserves final remaining piece without cutting off footage.
-        """
+        """Calculate sequential, non-overlapping 60s segments without losing remainder."""
         if duration <= 0 or clip_duration <= 0:
             return []
 
@@ -370,15 +560,11 @@ class MobileVideoProcessor:
         has_audio: bool,
         resolution: str = "1080x1920",
         stream_copy_original: bool = False,
-        crf: int = 20,
-        preset: str = "fast",
+        **kwargs,
     ) -> List[str]:
         """
-        Build argument list for FFmpeg command without using shell=True.
-        Supports:
-          - 'original': Keeps original dimensions.
-          - 'vertical_blur': 9:16 vertical canvas with blurred background & centered full video.
-          - 'vertical_crop': 9:16 vertical center crop.
+        Build argument list for FFmpeg command.
+        Uses adaptive mobile encoder detection (h264_videotoolbox on iOS, libx264 on desktop).
         """
         try:
             w_str, h_str = resolution.split("x")
@@ -386,9 +572,12 @@ class MobileVideoProcessor:
         except Exception:
             out_w, out_h = 1080, 1920
 
+        encoder_name, v_flags = detect_video_encoder()
+        a_flags = detect_audio_encoder()
+        blur_filter = detect_blur_filter()
+
         args = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
 
-        # Fast seek before -i, duration with -t
         args.extend(["-ss", f"{clip.start_time:.3f}"])
         args.extend(["-i", str(input_path.resolve())])
         args.extend(["-t", f"{clip.duration:.3f}"])
@@ -397,66 +586,36 @@ class MobileVideoProcessor:
         if format_mode == "original" and stream_copy_original:
             args.extend(["-c", "copy"])
         elif format_mode == "original":
-            args.extend(
-                [
-                    "-c:v",
-                    "libx264",
-                    "-crf",
-                    str(crf),
-                    "-preset",
-                    preset,
-                    "-pix_fmt",
-                    "yuv420p",
-                ]
-            )
+            args.extend(v_flags)
             if has_audio:
-                args.extend(["-map", "0:v:0", "-map", "0:a:0?", "-c:a", "aac", "-b:a", "192k"])
+                args.extend(["-map", "0:v:0", "-map", "0:a:0?"])
+                args.extend(a_flags)
             else:
                 args.extend(["-map", "0:v:0", "-an"])
 
         elif format_mode == "vertical_blur":
             filter_complex = (
                 f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-                f"crop={out_w}:{out_h},boxblur=20:5[bg];"
+                f"crop={out_w}:{out_h},{blur_filter}[bg];"
                 f"[0:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease[fg];"
                 f"[bg][fg]overlay=(W-w)/2:(H-h)/2[v]"
             )
             args.extend(["-filter_complex", filter_complex])
             args.extend(["-map", "[v]"])
-            args.extend(
-                [
-                    "-c:v",
-                    "libx264",
-                    "-crf",
-                    str(crf),
-                    "-preset",
-                    preset,
-                    "-pix_fmt",
-                    "yuv420p",
-                ]
-            )
+            args.extend(v_flags)
             if has_audio:
-                args.extend(["-map", "0:a:0?", "-c:a", "aac", "-b:a", "192k"])
+                args.extend(["-map", "0:a:0?"])
+                args.extend(a_flags)
             else:
                 args.extend(["-an"])
 
         elif format_mode == "vertical_crop":
             vf = f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h}"
             args.extend(["-vf", vf])
-            args.extend(
-                [
-                    "-c:v",
-                    "libx264",
-                    "-crf",
-                    str(crf),
-                    "-preset",
-                    preset,
-                    "-pix_fmt",
-                    "yuv420p",
-                ]
-            )
+            args.extend(v_flags)
             if has_audio:
-                args.extend(["-map", "0:v:0", "-map", "0:a:0?", "-c:a", "aac", "-b:a", "192k"])
+                args.extend(["-map", "0:v:0", "-map", "0:a:0?"])
+                args.extend(a_flags)
             else:
                 args.extend(["-map", "0:v:0", "-an"])
         else:
@@ -475,14 +634,10 @@ class MobileVideoProcessor:
         has_audio: bool,
         resolution: str = "1080x1920",
         stream_copy_original: bool = False,
-        crf: int = 20,
-        preset: str = "fast",
         on_status: Optional[Callable[[str], None]] = None,
+        **kwargs,
     ) -> Tuple[bool, str]:
-        """
-        Encode a single clip to destination path.
-        Returns: (success: bool, message: str)
-        """
+        """Encode a single clip to destination path with verification."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         args = self.build_ffmpeg_args(
@@ -493,8 +648,6 @@ class MobileVideoProcessor:
             has_audio=has_audio,
             resolution=resolution,
             stream_copy_original=stream_copy_original,
-            crf=crf,
-            preset=preset,
         )
 
         if on_status:
@@ -548,7 +701,7 @@ class MobileVideoProcessor:
     def verify_clip(
         self, clip_path: Path, expected_duration: float, should_have_audio: bool
     ) -> Tuple[bool, str]:
-        """Validate generated clip existence, file size, duration, and streams."""
+        """Validate output clip file size, duration, and streams."""
         if not clip_path.exists():
             return False, "Output file does not exist."
 
@@ -562,7 +715,9 @@ class MobileVideoProcessor:
             return False, f"Probe verification failed: {exc}"
 
         tolerance = 2.5
-        if abs(info.duration - expected_duration) > tolerance and info.duration < (expected_duration * 0.8):
+        if abs(info.duration - expected_duration) > tolerance and info.duration < (
+            expected_duration * 0.8
+        ):
             return (
                 False,
                 f"Duration mismatch: expected {expected_duration:.2f}s, got {info.duration:.2f}s",
@@ -572,6 +727,10 @@ class MobileVideoProcessor:
             return False, "Audio track is missing from output clip."
 
         return True, "Valid"
+
+
+# Compatibility alias
+VideoProcessor = MobileVideoProcessor
 
 
 def find_candidate_videos() -> List[Path]:
@@ -595,4 +754,3 @@ def find_candidate_videos() -> List[Path]:
                 pass
 
     return candidates
-

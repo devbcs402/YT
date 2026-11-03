@@ -24,6 +24,9 @@ from video_processor import (
     ClipSegment,
     MobileVideoProcessor,
     check_ffmpeg_installed,
+    detect_audio_encoder,
+    detect_blur_filter,
+    detect_video_encoder,
     format_duration,
     format_timestamp,
 )
@@ -40,12 +43,15 @@ def print_step(title: str) -> None:
     print(f"\n{CYAN}{BOLD}---> [TEST] {title}{RESET}")
 
 
-def create_synthetic_test_video(output_file: Path, duration: float = 5.0) -> bool:
+def create_synthetic_test_video(output_file: Path, duration: float = 4.0) -> bool:
     """
-    Generate a 1280x720 30fps test video with audio using FFmpeg's built-in lavfi filters.
-    Requires no external assets.
+    Generate a 1280x720 30fps test video with audio using FFmpeg's built-in lavfi filters
+    and the device's native encoder (e.g. h264_videotoolbox on iOS, libx264 on PC).
     """
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    encoder_name, v_flags = detect_video_encoder()
+    a_flags = detect_audio_encoder()
+
     cmd = [
         "ffmpeg",
         "-y",
@@ -60,18 +66,11 @@ def create_synthetic_test_video(output_file: Path, duration: float = 5.0) -> boo
         "lavfi",
         "-i",
         f"sine=frequency=1000:duration={duration}",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        str(output_file.resolve()),
     ]
+    cmd.extend(v_flags)
+    cmd.extend(a_flags)
+    cmd.append(str(output_file.resolve()))
+
     try:
         proc = subprocess.run(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False
@@ -95,12 +94,16 @@ def run_mobile_tests() -> bool:
     total_count = 7
 
     # -------------------------------------------------------------
-    # 1. FFmpeg & ffprobe environment check
+    # 1. FFmpeg availability & encoder detection
     # -------------------------------------------------------------
-    print_step("1. Checking FFmpeg & ffprobe availability...")
+    print_step("1. Checking FFmpeg environment & mobile hardware encoder...")
     ffmpeg_ok, ffprobe_ok, msg = check_ffmpeg_installed()
-    if ffmpeg_ok and ffprobe_ok:
-        print(f"  {GREEN}[PASS]{RESET} FFmpeg and ffprobe are functioning correctly.")
+    if ffmpeg_ok:
+        enc_name, enc_flags = detect_video_encoder()
+        blur_filter = detect_blur_filter()
+        print(f"  {GREEN}[PASS]{RESET} FFmpeg is operational.")
+        print(f"  [INFO] Detected video encoder: {YELLOW}{enc_name}{RESET}")
+        print(f"  [INFO] Detected blur filter:  {YELLOW}{blur_filter}{RESET}")
         passed_count += 1
     else:
         print(f"  {RED}[FAIL]{RESET} {msg}")
@@ -149,12 +152,12 @@ def run_mobile_tests() -> bool:
         print(f"  {RED}[FAIL]{RESET} Clip calculation error.")
 
     # -------------------------------------------------------------
-    # 4. Synthetic video generation and ffprobe probing test
+    # 4. Synthetic video generation and metadata probing test
     # -------------------------------------------------------------
-    print_step("4. Generating synthetic test video and probing metadata...")
+    print_step("4. Generating test video & verifying pure-FFmpeg metadata parser...")
     sample_video = test_dir / "sample_test.mp4"
     if not create_synthetic_test_video(sample_video, duration=4.0):
-        print(f"  {RED}[FAIL]{RESET} Could not generate test video.")
+        print(f"  {RED}[FAIL]{RESET} Could not generate test video using native encoder.")
         shutil.rmtree(test_dir, ignore_errors=True)
         return False
 
@@ -163,7 +166,7 @@ def run_mobile_tests() -> bool:
         print(f"  {GREEN}[PASS]{RESET} Probed: {info.width}x{info.height}, {info.formatted_duration}, audio={info.has_audio}")
         passed_count += 1
     else:
-        print(f"  {RED}[FAIL]{RESET} Probing returned incorrect values: {info}")
+        print(f"  {RED}[FAIL]{RESET} Probing returned unexpected values: {info}")
 
     # -------------------------------------------------------------
     # 5. Render Mode A (Preserve Original)
@@ -178,8 +181,6 @@ def run_mobile_tests() -> bool:
         output_path=out_a,
         format_mode="original",
         has_audio=True,
-        preset="ultrafast",
-        crf=23,
     )
 
     if ok_a and out_a.exists():
@@ -205,9 +206,7 @@ def run_mobile_tests() -> bool:
         output_path=out_b,
         format_mode="vertical_blur",
         has_audio=True,
-        resolution="720x1280",  # Test mobile 720x1280 vertical
-        preset="ultrafast",
-        crf=23,
+        resolution="720x1280",
     )
 
     if ok_b and out_b.exists():
@@ -234,8 +233,6 @@ def run_mobile_tests() -> bool:
         format_mode="vertical_crop",
         has_audio=True,
         resolution="720x1280",
-        preset="ultrafast",
-        crf=23,
     )
 
     if ok_c and out_c.exists():
@@ -269,4 +266,3 @@ def run_mobile_tests() -> bool:
 if __name__ == "__main__":
     success = run_mobile_tests()
     sys.exit(0 if success else 1)
-

@@ -22,18 +22,41 @@ A standalone, lightweight edition of the YouTube Shorts Video Splitter tailored 
 
 ```text
 mobile_crop/
+├── install.py           # Automatic setup & dependency installer (like npm install)
+├── setup.py             # Alias for install.py
+├── install.sh           # 1-click installer for mobile a-Shell / Termux / Linux
+├── install.bat          # 1-click installer for Windows
 ├── main.py              # Mobile interactive terminal menu & CLI runner
 ├── video_processor.py   # Mobile-optimized FFmpeg engine & validation
 ├── config.py            # Settings manager (auto-creates config.json)
 ├── config.json          # Persistent settings (remembers your last format choice)
 ├── test_mobile.py       # One-time self-diagnostic and verification test
-├── requirements.txt     # Information file (no pip packages needed)
+├── requirements.txt     # Dependency definition file
 ├── README.md            # Mobile setup and usage guide
 ├── video/
 │   └── video.mp4        # Place your input video file here
 └── output/
     └── shorts/          # Generated 60-second YouTube Shorts clips
 ```
+
+---
+
+## Quick Start (Just like `npm install`)
+
+When you first open or copy the project, run:
+
+```bash
+python install.py
+```
+*(or `python setup.py`)*
+
+This single command automatically:
+1. Detects your phone or computer environment.
+2. Automatically downloads and installs any needed Python packages.
+3. Auto-detects and configures hardware acceleration (`h264_videotoolbox` on iPhone, `libx264` on PC).
+4. Creates necessary `video/` and `output/shorts/` folders.
+5. Runs a 3-second self-test to verify that cutting and 9:16 vertical cropping work.
+6. Gives you the green light to start!
 
 ---
 
